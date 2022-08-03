@@ -54,8 +54,15 @@ fn run_file(file: String) -> Result<()> {
 }
 
 fn run(code: String) -> Result<()> {
-    // Add scanner and token list here
-    println!("\nExecuting code: {}", code);
+    let mut scanner = jrlox::scanner::Scanner::new(code);
+    let tokens = scanner.scan_tokens().map_err(|e| {
+        e.print();
+        anyhow::anyhow!("Compilation failed due to {} errors", e.size())
+    })?;
+
+    for token in tokens {
+        println!("{:?}", token);
+    }
 
     Ok(())
 }
