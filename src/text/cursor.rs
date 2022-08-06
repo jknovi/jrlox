@@ -54,6 +54,10 @@ impl TextCursor {
         &self.text[self.section_start.offset..self.current_position.offset]
     }
 
+    pub fn section_string(&self) -> String {
+        self.section_slice().iter().collect()
+    }
+
     pub fn section(&self) -> TextSection {
         TextSection {
             start: self.section_start,

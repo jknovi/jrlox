@@ -1,3 +1,4 @@
+use crate::error::ErrorBuilder;
 use crate::error::ErrorList;
 use crate::lexer::token::Token;
 use crate::lexer::token::TokenKind;
@@ -22,13 +23,18 @@ impl Scanner {
         while !self.cursor.is_done() {
             self.cursor.new_section();
 
-            self.scan();
+            match self.scan() {
+                Ok(kind) => self.add_token(kind),
+                Err(error_builder) => self
+                    .error_list
+                    .add(error_builder.section(self.cursor.section()).build()),
+            }
         }
 
         Ok(self.tokens.clone())
     }
 
-    fn scan(&mut self) {
+    fn scan(&mut self) -> Result<TokenKind, ErrorBuilder> {
         let c = self.cursor.next().expect("Unexpected end of file"); // maybe dump all errors there..
 
         let kind = match c {
@@ -43,101 +49,30 @@ impl Scanner {
             ';' => TokenKind::Semicolon,
             '*' => TokenKind::Star,
 
-            '!' => {
-                if self.consume_when_match('=') {
-                    TokenKind::BangEqual
-                } else {
-                    TokenKind::Bang
-                }
-            }
-            '=' => {
-                if self.consume_when_match('=') {
-                    TokenKind::EqualEqual
-                } else {
-                    TokenKind::Equal
-                }
-            }
-            '<' => {
-                if self.consume_when_match('=') {
-                    TokenKind::LessEqual
-                } else {
-                    TokenKind::Less
-                }
-            }
-            '>' => {
-                if self.consume_when_match('=') {
-                    TokenKind::GreaterEqual
-                } else {
-                    TokenKind::Greater
-                }
-            }
+            '!' => self.check_for_equal(TokenKind::Bang),
+            '=' => self.check_for_equal(TokenKind::Equal),
+            '<' => self.check_for_equal(TokenKind::Less),
+            '>' => self.check_for_equal(TokenKind::Greater),
 
-            '/' => {
-                if self.consume_when_match('/') {
-                    self.cursor.consume_until_match('\n');
-
-                    TokenKind::Skip
-                } else {
-                    TokenKind::Slash
-                }
-            }
+            '/' => self.scan_slash_or_comment()?,
 
             ' ' | '\r' | '\t' | '\n' => TokenKind::Skip,
 
-            '"' => {
-                self.cursor.consume_until_match('"');
-                if self.cursor.is_done() {
-                    let error = crate::error::ErrorBuilder::new()
-                        .section(self.cursor.section())
-                        .message("Unterminated string.")
-                        .build();
+            '"' => self.scan_string()?,
 
-                    self.error_list.add(error);
+            c if is_digit(&c) => self.scan_number(),
 
-                    return;
-                }
-
-                // skip opening '"' char
-                let string = self.cursor.section_slice()[1..].iter().collect();
-                // consume closing '"' char
-                self.cursor.consume();
-
-                TokenKind::String(string)
-            }
-
-            c if is_digit(&c) => {
-                self.cursor.consume_while(is_digit);
-
-                if self.cursor.match_next('.') {
-                    self.cursor.consume();
-                    self.cursor.consume_while(is_digit);
-                }
-
-                let number = self
-                    .cursor
-                    .section_slice()
-                    .iter()
-                    .collect::<String>()
-                    .parse()
-                    .expect("Impossible error parsing known number");
-
-                TokenKind::Number(number)
-            }
-            c if is_alpha(&c) => TokenKind::Skip,
+            c if is_alpha(&c) => self.scan_identifier_or_keyword(),
 
             unexpected => {
                 let error = crate::error::ErrorBuilder::new()
-                    .section(self.cursor.section())
-                    .message(format!("Unexpected character '{}'", unexpected))
-                    .build();
+                    .message(format!("Unexpected character '{}'", unexpected));
 
-                self.error_list.add(error);
-
-                TokenKind::Skip
+                return Err(error);
             }
         };
 
-        self.add_token(kind)
+        Ok(kind)
     }
 
     fn consume_when_match(&mut self, c: char) -> bool {
@@ -163,6 +98,89 @@ impl Scanner {
 
         self.tokens.push(token);
     }
+
+    fn scan_string(&mut self) -> Result<TokenKind, crate::error::ErrorBuilder> {
+        self.cursor.consume_until_match('"');
+        if self.cursor.is_done() {
+            let error = crate::error::ErrorBuilder::new().message("Unterminated string.");
+
+            return Err(error);
+        }
+
+        // skip opening '"' char
+        let string = self.cursor.section_slice()[1..].iter().collect();
+        // consume closing '"' char
+        self.cursor.consume();
+
+        Ok(TokenKind::String(string))
+    }
+
+    fn scan_slash_or_comment(&mut self) -> Result<TokenKind, ErrorBuilder> {
+        match self.cursor.current() {
+            Some('/') => {
+                self.cursor.consume_until_match('\n');
+
+                Ok(TokenKind::Skip)
+            }
+            Some('*') => {
+                // C-Style
+                self.cursor.consume();
+                loop {
+                    self.cursor.consume_until_match('*');
+                    self.cursor.consume();
+
+                    match self.cursor.next() {
+                        Some('/') => break,
+                        Some(_) => continue,
+                        None => {
+                            return Err(
+                                crate::error::ErrorBuilder::new().message("Unterminated comment.")
+                            )
+                        }
+                    }
+                }
+
+                Ok(TokenKind::Skip)
+            }
+            _ => Ok(TokenKind::Slash),
+        }
+    }
+
+    fn check_for_equal(&mut self, kind: TokenKind) -> TokenKind {
+        if self.consume_when_match('=') {
+            kind.with_equal()
+        } else {
+            kind
+        }
+    }
+
+    fn scan_number(&mut self) -> TokenKind {
+        self.cursor.consume_while(is_digit);
+
+        if self.cursor.match_next('.') {
+            self.cursor.consume();
+            self.cursor.consume_while(is_digit);
+        }
+
+        let number = self
+            .cursor
+            .section_string()
+            .parse()
+            .expect("Impossible error parsing known number");
+
+        TokenKind::Number(number)
+    }
+
+    fn scan_identifier_or_keyword(&mut self) -> TokenKind {
+        self.cursor.consume_while(is_alpha_numeric);
+
+        let text = self.cursor.section_string();
+
+        match TokenKind::keyword_token(&text) {
+            Some(token) => token,
+            None => TokenKind::Identifier(text),
+        }
+    }
 }
 
 fn is_digit(c: &char) -> bool {
@@ -171,4 +189,8 @@ fn is_digit(c: &char) -> bool {
 
 fn is_alpha(c: &char) -> bool {
     matches!(c, 'a'..='z' | 'A'..='Z' | '_')
+}
+
+fn is_alpha_numeric(c: &char) -> bool {
+    is_alpha(c) || is_digit(c)
 }
