@@ -17,7 +17,10 @@ fn main() -> Result<()> {
 
 fn run_prompt() -> Result<()> {
     while let Some(line) = prompt()? {
-        run(line)?;
+        match run(line) {
+            Ok(_) => (),
+            Err(e) => eprintln!("{}", e),
+        }
     }
 
     println!("\nbybye");
@@ -55,15 +58,18 @@ fn run_file(file: String) -> Result<()> {
 
 fn run(code: String) -> Result<()> {
     let mut scanner = jrlox::lexer::Scanner::new(code);
-    let tokens = scanner.scan_tokens().map_err(|e| {
-        e.print();
-        anyhow::anyhow!("Compilation failed due to {} errors", e.size())
-    })?;
+
+    let jrlox::lexer::ScanResult { tokens, errors } = scanner.scan_tokens();
 
     for token in tokens {
         println!("{:?}", token);
     }
-    scanner.error_list.print();
+
+    if errors.size() > 0 {
+        errors.print();
+
+        anyhow::bail!("Compilation failed due to {} errors", errors.size());
+    }
 
     Ok(())
 }

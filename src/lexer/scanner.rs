@@ -6,36 +6,42 @@ use crate::text::TextCursor;
 
 pub struct Scanner {
     cursor: TextCursor,
-    tokens: Vec<Token>,
-    pub error_list: ErrorList,
+}
+
+#[derive(Default, Clone)]
+pub struct ScanResult {
+    pub tokens: Vec<Token>,
+    pub errors: ErrorList,
 }
 
 impl Scanner {
     pub fn new(source: String) -> Self {
         Self {
             cursor: TextCursor::new(&source),
-            tokens: Default::default(),
-            error_list: ErrorList::default(),
         }
     }
 
-    pub fn scan_tokens(&mut self) -> Result<Vec<Token>, ErrorList> {
+    pub fn scan_tokens(&mut self) -> ScanResult {
+        let mut tokens = Vec::new();
+        let mut errors = ErrorList::default();
+
         while !self.cursor.is_done() {
             self.cursor.new_section();
 
             match self.scan() {
-                Ok(kind) => self.add_token(kind),
-                Err(error_builder) => self
-                    .error_list
-                    .add(error_builder.section(self.cursor.section()).build()),
+                Ok(TokenKind::Skip) => (),
+                Ok(kind) => tokens.push(self.add_context(kind)),
+                Err(error_builder) => {
+                    errors.add(error_builder.section(self.cursor.section()).build())
+                }
             }
         }
 
-        Ok(self.tokens.clone())
+        ScanResult { tokens, errors }
     }
 
     fn scan(&mut self) -> Result<TokenKind, ErrorBuilder> {
-        let c = self.cursor.next().expect("Unexpected end of file"); // maybe dump all errors there..
+        let c = self.cursor.next().expect("Unexpected end of file");
 
         let kind = match c {
             '(' => TokenKind::LeftParen,
@@ -85,18 +91,12 @@ impl Scanner {
         }
     }
 
-    fn add_token(&mut self, kind: TokenKind) {
-        if kind == TokenKind::Skip {
-            return;
-        }
-
-        let token = Token {
+    fn add_context(&mut self, kind: TokenKind) -> Token {
+        Token {
             kind,
             lexeme: self.cursor.section_slice().iter().collect(),
             section: self.cursor.section(),
-        };
-
-        self.tokens.push(token);
+        }
     }
 
     fn scan_string(&mut self) -> Result<TokenKind, crate::error::ErrorBuilder> {
