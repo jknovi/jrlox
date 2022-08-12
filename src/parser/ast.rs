@@ -1,4 +1,5 @@
 use crate::lexer::token::Token;
+use ast_macros::grammar;
 
 macro_rules! def_rule {
     ($name:ident => $($id:ident : $type:ty),+) => {
@@ -42,14 +43,6 @@ def_rule!(
         | Literal
 );
 
-def_rule!(
-    Grouping => expression: Expression
-);
-
-def_rule!(
-    Binary => left: Expression, operator: Token, right: Expression
-);
-
 // This could be just a token.. although we lose the "type" then..
 def_rule!(
     Literal => [Number as f64]
@@ -58,9 +51,11 @@ def_rule!(
         | [Nil as Token]
 );
 
-def_rule!(
-    Unary => operator: Token, expression: Expression
-);
+grammar! {
+    Binary => left: Expression, operator: Token, right: Expression;
+    Unary => operator: Token, expression: Expression;
+    Grouping => expression: Expression;
+}
 
 def_visitor!(
     Expression: visit_expr,
