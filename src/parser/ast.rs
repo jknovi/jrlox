@@ -1,69 +1,24 @@
 use crate::lexer::token::Token;
 use ast_macros::grammar;
 
-macro_rules! def_rule {
-    ($name:ident => $($id:ident : $type:ty),+) => {
-        pub struct $name {
-            $(pub $id: std::boxed::Box<$type>,)*
-        }
-    };
-    ($name:ident => $($untyped:ident)|* $([$variant:ident as $type:ty])|* ) => {
-        pub enum $name {
-            $($variant($type)),*
-            $($untyped($untyped)),*
-        }
-    };
-}
-
-macro_rules! def_visitor {
-    // Had to adf func, because can't use macros on certain parts of the macros
-    // but now it works, had to add more stuff.
-    ($($name:ident : $func:ident),+) => {
-
-        pub trait SyntaxVisitor<T> {
-            $(fn $func(&mut self, arg: &$name) -> T;)+
-        }
-
-        pub trait Visitable<T> {
-            fn accept(&self, visitor: &mut impl SyntaxVisitor<T>) -> T;
-        }
-
-        $(impl<T> Visitable<T> for $name {
-            fn accept(&self, visitor: &mut impl SyntaxVisitor<T>) -> T {
-                visitor.$func(&self)
-            }
-        })+
-    }
-}
-
-def_rule!(
+grammar! {
     Expression => Binary
         | Unary
         | Grouping
-        | Literal
-);
+        | Literal;
 
-// This could be just a token.. although we lose the "type" then..
-def_rule!(
-    Literal => [Number as f64]
-        | [String as String]
-        | [Boolean as Token]
-        | [Nil as Token]
-);
+    Literal => Number as f64
+        | String
+        | @True
+        | @False
+        | @Nil;
 
-grammar! {
     Binary => left: Expression, operator: Token, right: Expression;
+
     Unary => operator: Token, expression: Expression;
+
     Grouping => expression: Expression;
 }
-
-def_visitor!(
-    Expression: visit_expr,
-    Grouping: visit_grouping,
-    Binary: visit_binary,
-    Literal: visit_literal,
-    Unary: visit_unary
-);
 
 pub mod prefix_printer {
     use super::*;
@@ -82,7 +37,7 @@ pub mod prefix_printer {
     }
 
     impl SyntaxVisitor<String> for PrefixPrinter {
-        fn visit_expr(&mut self, arg: &Expression) -> String {
+        fn visit_expression(&mut self, arg: &Expression) -> String {
             match arg {
                 Expression::Binary(binary) => self.visit_binary(binary),
                 Expression::Unary(unary) => self.visit_unary(unary),
@@ -107,7 +62,9 @@ pub mod prefix_printer {
             match literal {
                 Literal::Number(value) => value.to_string(),
                 Literal::String(value) => value.clone(),
-                Literal::Boolean(token) | Literal::Nil(token) => token.lexeme.clone(),
+                Literal::True => String::from("true"),
+                Literal::False => String::from("false"),
+                Literal::Nil => String::from("nil"),
             }
         }
 
@@ -118,5 +75,50 @@ pub mod prefix_printer {
                 unary.expression.accept(self)
             )
         }
+    }
+
+    #[test]
+    fn pretty_print_renders_correct_tree() {
+        use crate::lexer::token::TokenKind;
+
+        let expression = Expression::Binary(Binary {
+            left: Box::new(Expression::Unary(Unary {
+                operator: Box::new(Token {
+                    kind: TokenKind::Minus,
+                    lexeme: "-".into(),
+                    section: Default::default(),
+                }),
+                expression: Box::new(Expression::Binary(Binary {
+                    left: Box::new(Expression::Literal(Literal::True)),
+                    operator: Box::new(Token {
+                        kind: TokenKind::Slash,
+                        lexeme: "/".into(),
+                        section: Default::default(),
+                    }),
+                    right: Box::new(Expression::Literal(Literal::Number(123.0))),
+                })),
+            })),
+            operator: Box::new(Token {
+                kind: TokenKind::Star,
+                lexeme: "*".into(),
+                section: Default::default(),
+            }),
+            right: Box::new(Expression::Grouping(Grouping {
+                expression: Box::new(Expression::Binary(Binary {
+                    left: Box::new(Expression::Literal(Literal::Nil)),
+                    operator: Box::new(Token {
+                        kind: TokenKind::Plus,
+                        lexeme: "+".into(),
+                        section: Default::default(),
+                    }),
+                    right: Box::new(Expression::Literal(Literal::Number(45.67))),
+                })),
+            })),
+        });
+
+        assert_eq!(
+            "(* (- (/ true 123)) (grouping (+ nil 45.67)))",
+            PrefixPrinter::new().print(&expression),
+        );
     }
 }
