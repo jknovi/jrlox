@@ -57,19 +57,22 @@ fn run_file(file: String) -> Result<()> {
 }
 
 fn run(code: String) -> Result<()> {
-    let mut scanner = jrlox::lexer::Scanner::new(code);
+    use jrlox::parser::ast::prefix_printer::PrefixPrinter;
 
+    let mut scanner = jrlox::lexer::Scanner::new(code);
     let jrlox::lexer::ScanResult { tokens, errors } = scanner.scan_tokens();
 
-    for token in tokens {
-        println!("{:?}", token);
-    }
+    let parser = jrlox::parser::Parser::new(tokens);
+
+    let expression = parser.parse(); // check errors here too
 
     if errors.size() > 0 {
         errors.print();
 
         anyhow::bail!("Compilation failed due to {} errors", errors.size());
     }
+
+    println!("{}", PrefixPrinter::new().print(&expression));
 
     Ok(())
 }

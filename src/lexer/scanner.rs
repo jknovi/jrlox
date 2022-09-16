@@ -37,6 +37,8 @@ impl Scanner {
             }
         }
 
+        tokens.push(self.add_context(TokenKind::Eof));
+
         ScanResult { tokens, errors }
     }
 

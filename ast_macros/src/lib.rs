@@ -122,6 +122,7 @@ impl Parse for Field {
     }
 }
 
+// TODO: rename to AST, this is for defining the AST structure, not the grammar.
 #[proc_macro]
 pub fn grammar(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let Grammar { rules } = parse_macro_input!(input as Grammar);
