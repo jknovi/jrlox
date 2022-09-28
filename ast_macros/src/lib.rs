@@ -7,6 +7,8 @@ use syn::{parse_macro_input, Ident, Token, Type};
 
 // TODO:
 //   - Only box those types that are recursive
+//     - Probably actually use Rc instead of Box, as these will be shared and don't want to do deep
+//       copies all the time.
 //   - Error handling
 //   - docs?
 
@@ -149,6 +151,7 @@ fn render_rule_struct(Rule { name, body }: &Rule) -> TokenStream {
                 .map(|Field { name, ty }| quote! {#name: ::std::boxed::Box<#ty>});
 
             quote! {
+                #[derive(Clone, Debug)]
                 pub struct #name {
                     #(pub #rendered_fields),*
                 }
@@ -158,6 +161,7 @@ fn render_rule_struct(Rule { name, body }: &Rule) -> TokenStream {
             let rendered_variants = branches.iter().map(render_branched_variant);
 
             quote! {
+                #[derive(Clone, Debug)]
                 pub enum #name {
                     #(#rendered_variants),*
                 }

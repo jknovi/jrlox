@@ -169,7 +169,7 @@ impl Parser {
             return Expression::Grouping(grouped);
         }
 
-        todo!()
+        todo!() // error handling
     }
 
     //
@@ -234,5 +234,129 @@ impl Parser {
 
     fn previous(&self) -> &Token {
         self.checked_previous().expect("Out of bounds")
+    }
+}
+
+pub mod evaluator {
+    use crate::lexer::token::TokenKind;
+    use crate::parser::ast::Binary;
+    use crate::parser::ast::Expression;
+    use crate::parser::ast::Grouping;
+    use crate::parser::ast::Literal;
+    use crate::parser::ast::SyntaxVisitor;
+    use crate::parser::ast::Unary;
+    use crate::parser::ast::Visitable;
+
+    #[derive(Default)]
+    pub struct Evaluator {}
+
+    #[derive(Debug)]
+    pub struct ExpressionValue {
+        literal: Literal,
+    }
+
+    impl Evaluator {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn eval(&mut self, expression: &Expression) -> ExpressionValue {
+            expression.accept(self)
+        }
+    }
+
+    impl SyntaxVisitor<ExpressionValue> for Evaluator {
+        fn visit_expression(&mut self, arg: &Expression) -> ExpressionValue {
+            match arg {
+                Expression::Binary(binary) => self.visit_binary(binary),
+                Expression::Unary(unary) => self.visit_unary(unary),
+                Expression::Grouping(grouping) => self.visit_grouping(grouping),
+                Expression::Literal(literal) => self.visit_literal(literal),
+            }
+        }
+
+        fn visit_grouping(&mut self, grouping: &Grouping) -> ExpressionValue {
+            self.eval(&grouping.expression)
+        }
+
+        fn visit_binary(&mut self, binary: &Binary) -> ExpressionValue {
+            let lval = binary.left.accept(self);
+            let rval = binary.right.accept(self);
+
+            let literal = match binary.operator.kind {
+                TokenKind::Minus => match (lval.literal, rval.literal) {
+                    (Literal::Number(left), Literal::Number(right)) => {
+                        Literal::Number(left - right)
+                    }
+                    _ => panic!(),
+                },
+
+                TokenKind::Slash => match (lval.literal, rval.literal) {
+                    (Literal::Number(left), Literal::Number(right)) => {
+                        Literal::Number(left / right)
+                    }
+                    _ => panic!(),
+                },
+
+                TokenKind::Star => match (lval.literal, rval.literal) {
+                    (Literal::Number(left), Literal::Number(right)) => {
+                        Literal::Number(left * right)
+                    }
+                    _ => panic!(),
+                },
+
+                TokenKind::Plus => match (lval.literal, rval.literal) {
+                    (Literal::Number(left), Literal::Number(right)) => {
+                        Literal::Number(left + right)
+                    }
+
+                    (Literal::String(left), Literal::String(right)) => {
+                        Literal::String(format!("{}{}", left, right))
+                    }
+
+                    _ => panic!(),
+                },
+
+                _ => Literal::Nil,
+            };
+
+            ExpressionValue { literal }
+        }
+
+        fn visit_literal(&mut self, literal: &Literal) -> ExpressionValue {
+            ExpressionValue {
+                literal: literal.clone(),
+            }
+        }
+
+        fn visit_unary(&mut self, unary: &Unary) -> ExpressionValue {
+            let rval = self.eval(&unary.expression).literal;
+
+            let literal = match unary.operator.kind {
+                TokenKind::Minus => match rval {
+                    Literal::Number(num) => Literal::Number(-num),
+                    _ => panic!(),
+                },
+                TokenKind::Bang => not(&rval),
+
+                _ => panic!(),
+            };
+
+            ExpressionValue { literal }
+        }
+    }
+
+    //fn as_truthy(literal: &Literal) -> Literal {
+    //    match literal {
+    //        Literal::False | Literal::Nil => Literal::False,
+    //        _ => Literal::True, // everything is truthy but false
+    //    }
+    //}
+
+    fn not(literal: &Literal) -> Literal {
+        match literal {
+            Literal::False | Literal::Nil => Literal::True,
+            _ => Literal::False, // everything is truthy but false
+        }
     }
 }
