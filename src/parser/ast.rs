@@ -20,6 +20,18 @@ grammar! {
     Grouping => expression: Expression;
 }
 
+impl ToString for Literal {
+    fn to_string(&self) -> String {
+        match self {
+            Literal::Number(value) => value.to_string(),
+            Literal::String(value) => format!("\"{}\"", value),
+            Literal::True => String::from("true"),
+            Literal::False => String::from("false"),
+            Literal::Nil => String::from("nil"),
+        }
+    }
+}
+
 pub mod prefix_printer {
     use super::*;
 
@@ -59,13 +71,7 @@ pub mod prefix_printer {
             )
         }
         fn visit_literal(&mut self, literal: &Literal) -> String {
-            match literal {
-                Literal::Number(value) => value.to_string(),
-                Literal::String(value) => value.clone(),
-                Literal::True => String::from("true"),
-                Literal::False => String::from("false"),
-                Literal::Nil => String::from("nil"),
-            }
+            literal.to_string()
         }
 
         fn visit_unary(&mut self, unary: &Unary) -> String {

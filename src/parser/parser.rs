@@ -1,3 +1,5 @@
+use crate::error::Error;
+use crate::error::ErrorBuilder;
 use crate::lexer::token::Token;
 use crate::lexer::token::TokenKind;
 use crate::parser::ast::Binary;
@@ -5,6 +7,8 @@ use crate::parser::ast::Expression;
 use crate::parser::ast::Grouping;
 use crate::parser::ast::Literal;
 use crate::parser::ast::Unary;
+
+type Result<T> = std::result::Result<T, Error>;
 
 /// Parses the following unambigous grammar:
 /// ```
@@ -21,6 +25,13 @@ pub struct Parser {
     scan_position: usize,
 }
 
+fn error_at(msg: impl Into<std::borrow::Cow<'static, str>>, token: &Token) -> Error {
+    ErrorBuilder::new()
+        .message(msg)
+        .section(token.section)
+        .build()
+}
+
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
@@ -30,36 +41,37 @@ impl Parser {
     }
 
     // maybe consume self instead? yes
-    pub fn parse(mut self) -> Expression {
+    pub fn parse(mut self) -> Result<Expression> {
         // Do error handling/recovery here
+        // TODO: After this, the token stream should have been completely consumed...
         self.expression()
     }
 
     /// expression -> equality ;
-    fn expression(&mut self) -> Expression {
+    fn expression(&mut self) -> Result<Expression> {
         self.equality()
     }
 
     /// equality   -> comparison ( ( "!=" | "==" ) comparison )* ;
-    fn equality(&mut self) -> Expression {
-        let mut left = self.comparison();
+    fn equality(&mut self) -> Result<Expression> {
+        let mut left = self.comparison()?;
 
         while self.matches(TokenKind::BangEqual) || self.matches(TokenKind::EqualEqual) {
             let binary = Binary {
                 left: std::boxed::Box::new(left),
                 operator: std::boxed::Box::new(self.previous().clone()),
-                right: std::boxed::Box::new(self.comparison()),
+                right: std::boxed::Box::new(self.comparison()?),
             };
 
             left = Expression::Binary(binary);
         }
 
-        left
+        Ok(left)
     }
 
     /// comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    fn comparison(&mut self) -> Expression {
-        let mut left = self.term();
+    fn comparison(&mut self) -> Result<Expression> {
+        let mut left = self.term()?;
 
         while self.matches(TokenKind::Greater)
             || self.matches(TokenKind::GreaterEqual)
@@ -69,76 +81,76 @@ impl Parser {
             let binary = Binary {
                 left: std::boxed::Box::new(left),
                 operator: std::boxed::Box::new(self.previous().clone()),
-                right: std::boxed::Box::new(self.term()),
+                right: std::boxed::Box::new(self.term()?),
             };
 
             left = Expression::Binary(binary);
         }
 
-        left
+        Ok(left)
     }
 
     /// term       -> factor ( ( "-" | "+" ) factor )* ;
-    fn term(&mut self) -> Expression {
-        let mut left = self.factor();
+    fn term(&mut self) -> Result<Expression> {
+        let mut left = self.factor()?;
 
         while self.matches(TokenKind::Minus) || self.matches(TokenKind::Plus) {
             let binary = Binary {
                 left: std::boxed::Box::new(left),
                 operator: std::boxed::Box::new(self.previous().clone()),
-                right: std::boxed::Box::new(self.factor()),
+                right: std::boxed::Box::new(self.factor()?),
             };
 
             left = Expression::Binary(binary);
         }
 
-        left
+        Ok(left)
     }
 
     /// factor     -> unary ( ( "/" | "*" ) unary )* ;
-    fn factor(&mut self) -> Expression {
-        let mut left = self.unary();
+    fn factor(&mut self) -> Result<Expression> {
+        let mut left = self.unary()?;
 
         while self.matches(TokenKind::Slash) || self.matches(TokenKind::Star) {
             let binary = Binary {
                 left: std::boxed::Box::new(left),
                 operator: std::boxed::Box::new(self.previous().clone()),
-                right: std::boxed::Box::new(self.unary()),
+                right: std::boxed::Box::new(self.unary()?),
             };
 
             left = Expression::Binary(binary);
         }
 
-        left
+        Ok(left)
     }
 
     /// unary      -> ( "!" | "-" ) unary | primary ;
-    fn unary(&mut self) -> Expression {
+    fn unary(&mut self) -> Result<Expression> {
         if self.matches(TokenKind::Bang) || self.matches(TokenKind::Minus) {
             let unary = Unary {
                 operator: std::boxed::Box::new(self.previous().clone()),
-                expression: std::boxed::Box::new(self.unary()),
+                expression: std::boxed::Box::new(self.unary()?),
             };
 
-            Expression::Unary(unary)
+            Ok(Expression::Unary(unary))
         } else {
             self.primary()
         }
     }
 
     /// primary    -> NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")" ;
-    fn primary(&mut self) -> Expression {
+    fn primary(&mut self) -> Result<Expression> {
         // TODO: rewrite this into a proper match, same for all the other matches..
         if self.matches(TokenKind::False) {
-            return Expression::Literal(Literal::False);
+            return Ok(Expression::Literal(Literal::False));
         }
 
         if self.matches(TokenKind::True) {
-            return Expression::Literal(Literal::True);
+            return Ok(Expression::Literal(Literal::True));
         }
 
         if self.matches(TokenKind::Nil) {
-            return Expression::Literal(Literal::Nil);
+            return Ok(Expression::Literal(Literal::Nil));
         }
 
         if let Some(number) = self.number() {
@@ -147,7 +159,7 @@ impl Parser {
             // TODO: fix this should advance on number
             self.advance();
 
-            return Expression::Literal(literal);
+            return Ok(Expression::Literal(literal));
         }
 
         if let Some(string) = self.string() {
@@ -156,25 +168,25 @@ impl Parser {
             // TODO: fix this should advance on string
             self.advance();
 
-            return Expression::Literal(literal);
+            return Ok(Expression::Literal(literal));
         }
 
         if self.matches(TokenKind::LeftParen) {
             let grouped = Grouping {
-                expression: std::boxed::Box::new(self.expression()),
+                expression: std::boxed::Box::new(self.expression()?),
             };
 
-            // TODO: consume/check Right paren
+            self.consume(TokenKind::RightParen)?;
 
-            return Expression::Grouping(grouped);
+            return Ok(Expression::Grouping(grouped));
         }
 
-        todo!() // error handling
+        Err(self.unexpected())
     }
 
     //
     //
-    // Utility functions, may abstract into token walker/cusor or something
+    // Utility functions, may abstract into token walker/cursor or something
     //
     //
     fn number(&mut self) -> Option<f64> {
@@ -235,128 +247,48 @@ impl Parser {
     fn previous(&self) -> &Token {
         self.checked_previous().expect("Out of bounds")
     }
-}
 
-pub mod evaluator {
-    use crate::lexer::token::TokenKind;
-    use crate::parser::ast::Binary;
-    use crate::parser::ast::Expression;
-    use crate::parser::ast::Grouping;
-    use crate::parser::ast::Literal;
-    use crate::parser::ast::SyntaxVisitor;
-    use crate::parser::ast::Unary;
-    use crate::parser::ast::Visitable;
+    fn unexpected(&self) -> Error {
+        let current = self.peek();
 
-    #[derive(Default)]
-    pub struct Evaluator {}
+        let msg = format!("Unexpected token '{}'", current.lexeme);
 
-    #[derive(Debug)]
-    pub struct ExpressionValue {
-        literal: Literal,
+        error_at(msg, current)
     }
 
-    impl Evaluator {
-        pub fn new() -> Self {
-            Self::default()
-        }
+    fn consume(&mut self, expected: TokenKind) -> Result<()> {
+        let current = self.peek();
 
-        pub fn eval(&mut self, expression: &Expression) -> ExpressionValue {
-            expression.accept(self)
+        if current.kind == expected {
+            self.advance();
+
+            Ok(())
+        } else {
+            let msg = format!(
+                "Expecting to find '{:?}' fount '{}' instead",
+                expected, current.lexeme
+            );
+
+            Err(error_at(msg, current))
         }
     }
 
-    impl SyntaxVisitor<ExpressionValue> for Evaluator {
-        fn visit_expression(&mut self, arg: &Expression) -> ExpressionValue {
-            match arg {
-                Expression::Binary(binary) => self.visit_binary(binary),
-                Expression::Unary(unary) => self.visit_unary(unary),
-                Expression::Grouping(grouping) => self.visit_grouping(grouping),
-                Expression::Literal(literal) => self.visit_literal(literal),
-            }
-        }
-
-        fn visit_grouping(&mut self, grouping: &Grouping) -> ExpressionValue {
-            self.eval(&grouping.expression)
-        }
-
-        fn visit_binary(&mut self, binary: &Binary) -> ExpressionValue {
-            let lval = binary.left.accept(self);
-            let rval = binary.right.accept(self);
-
-            let literal = match binary.operator.kind {
-                TokenKind::Minus => match (lval.literal, rval.literal) {
-                    (Literal::Number(left), Literal::Number(right)) => {
-                        Literal::Number(left - right)
-                    }
-                    _ => panic!(),
-                },
-
-                TokenKind::Slash => match (lval.literal, rval.literal) {
-                    (Literal::Number(left), Literal::Number(right)) => {
-                        Literal::Number(left / right)
-                    }
-                    _ => panic!(),
-                },
-
-                TokenKind::Star => match (lval.literal, rval.literal) {
-                    (Literal::Number(left), Literal::Number(right)) => {
-                        Literal::Number(left * right)
-                    }
-                    _ => panic!(),
-                },
-
-                TokenKind::Plus => match (lval.literal, rval.literal) {
-                    (Literal::Number(left), Literal::Number(right)) => {
-                        Literal::Number(left + right)
-                    }
-
-                    (Literal::String(left), Literal::String(right)) => {
-                        Literal::String(format!("{}{}", left, right))
-                    }
-
-                    _ => panic!(),
-                },
-
-                _ => Literal::Nil,
-            };
-
-            ExpressionValue { literal }
-        }
-
-        fn visit_literal(&mut self, literal: &Literal) -> ExpressionValue {
-            ExpressionValue {
-                literal: literal.clone(),
-            }
-        }
-
-        fn visit_unary(&mut self, unary: &Unary) -> ExpressionValue {
-            let rval = self.eval(&unary.expression).literal;
-
-            let literal = match unary.operator.kind {
-                TokenKind::Minus => match rval {
-                    Literal::Number(num) => Literal::Number(-num),
-                    _ => panic!(),
-                },
-                TokenKind::Bang => not(&rval),
-
-                _ => panic!(),
-            };
-
-            ExpressionValue { literal }
+    fn synchronize(&mut self) {
+        while !self.is_done() && !self.at_synchronization_point() {
+            self.advance();
         }
     }
 
-    //fn as_truthy(literal: &Literal) -> Literal {
-    //    match literal {
-    //        Literal::False | Literal::Nil => Literal::False,
-    //        _ => Literal::True, // everything is truthy but false
-    //    }
-    //}
-
-    fn not(literal: &Literal) -> Literal {
-        match literal {
-            Literal::False | Literal::Nil => Literal::True,
-            _ => Literal::False, // everything is truthy but false
+    fn at_synchronization_point(&self) -> bool {
+        matches! { self.peek().kind,
+            TokenKind::Class
+            | TokenKind::For
+            | TokenKind::Fun
+            | TokenKind::If
+            | TokenKind::Print
+            | TokenKind::Return
+            | TokenKind::Var
+            | TokenKind::While
         }
     }
 }

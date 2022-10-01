@@ -95,8 +95,12 @@ impl Scanner {
 
     fn add_context(&mut self, kind: TokenKind) -> Token {
         Token {
+            lexeme: if kind == TokenKind::Eof {
+                "EOF".into()
+            } else {
+                self.cursor.section_slice().iter().collect()
+            },
             kind,
-            lexeme: self.cursor.section_slice().iter().collect(),
             section: self.cursor.section(),
         }
     }

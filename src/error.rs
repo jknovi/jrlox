@@ -8,6 +8,15 @@ pub struct Error {
     pub message: Cow<'static, str>,
 }
 
+impl ToString for Error {
+    fn to_string(&self) -> String {
+        format!(
+            "{} at line: {}, column: {}",
+            self.message, self.section.start.line, self.section.start.column
+        )
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ErrorBuilder {
     section: Option<TextSection>,

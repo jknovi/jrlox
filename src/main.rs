@@ -51,20 +51,15 @@ fn prompt() -> Result<Option<String>> {
 fn run_file(file: String) -> Result<()> {
     let content = std::fs::read_to_string(file).context("Fatal error reading file")?;
 
+    // TODO: Add some timers here just for curiosity
     run(content)?;
 
     Ok(())
 }
 
 fn run(code: String) -> Result<()> {
-    use jrlox::parser::parser::evaluator::Evaluator;
-
     let mut scanner = jrlox::lexer::Scanner::new(code);
     let jrlox::lexer::ScanResult { tokens, errors } = scanner.scan_tokens();
-
-    let parser = jrlox::parser::Parser::new(tokens);
-
-    let expression = parser.parse(); // check errors here too
 
     if errors.size() > 0 {
         errors.print();
@@ -72,7 +67,14 @@ fn run(code: String) -> Result<()> {
         anyhow::bail!("Compilation failed due to {} errors", errors.size());
     }
 
-    println!("{:?}", Evaluator::new().eval(&expression));
+    let parser = jrlox::parser::Parser::new(tokens);
+
+    let expression = parser.parse().map_err(|e| anyhow::anyhow!("{:?}", e))?; // check errors here too
+
+    match jrlox::interpreter::eval(&expression) {
+        Ok(result) => println!("{}", result.to_string()),
+        Err(e) => anyhow::bail!("Runtime error encountered: {}", e),
+    };
 
     Ok(())
 }
