@@ -69,7 +69,9 @@ fn run(code: String) -> Result<()> {
 
     let parser = jrlox::parser::Parser::new(tokens);
 
-    let expression = parser.parse().map_err(|e| anyhow::anyhow!("{:?}", e))?; // check errors here too
+    let expression = parser
+        .parse()
+        .map_err(|e| anyhow::anyhow!("{}", e.to_string()))?;
 
     match jrlox::interpreter::eval(&expression) {
         Ok(result) => println!("{}", result.to_string()),

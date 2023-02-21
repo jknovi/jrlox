@@ -25,13 +25,6 @@ pub struct Parser {
     scan_position: usize,
 }
 
-fn error_at(msg: impl Into<std::borrow::Cow<'static, str>>, token: &Token) -> Error {
-    ErrorBuilder::new()
-        .message(msg)
-        .section(token.section)
-        .build()
-}
-
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
@@ -291,4 +284,22 @@ impl Parser {
             | TokenKind::While
         }
     }
+}
+
+macro_rules! matches_any {
+    ($e:expr) => {{
+        self.matches($e)
+    }};
+
+    // Decompose multiple `eval`s recursively
+    ($e:expr, $($es:expr),+) => {{
+        self.matches($e) (|| self.matches($es))+
+    }};
+}
+
+fn error_at(msg: impl Into<std::borrow::Cow<'static, str>>, token: &Token) -> Error {
+    ErrorBuilder::new()
+        .message(msg)
+        .section(token.section)
+        .build()
 }
